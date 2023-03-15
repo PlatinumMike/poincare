@@ -24,29 +24,43 @@ fn main() {
         z_pos_axis: 0.0,
         mag_field0: 4.5,
     };
-    let mut position = [0.7, 0.0, 0.0]; //cylindrical coordinates are in (R,phi,Z) format
+
     let num_revolutions: u32 = 100; //except the last point, so each poloidal plane will have num_revolutions points.
     let steps_per_rev: u32 = 1000; //number of steps per revolution todo: add parameter to choose how many of these are saved, right now it saves every step...
+    let num_tracers: u32 = 10; //number of launch sites of tracer particles
+    let left_start = input.major_rad0 + 0.1 * input.minor_rad0;
+    let right_start = input.major_rad0 + 0.8 * input.minor_rad0;
+
+    let array_size = 3 * num_tracers as usize;
+    let mut position = vec![0.0; array_size]; //cylindrical coordinates are in (R,phi,Z) format
+    for i in 0..num_tracers {
+        let index = (i * 3) as usize;
+        position[index] = left_start + (i as f64) * (right_start - left_start) / (num_tracers as f64 - 1.0); //initialize the R coordinates.
+    }
+
 
     let step_size = 2.0 * std::f64::consts::PI / (steps_per_rev as f64);
     let num_steps = num_revolutions * steps_per_rev;
-    let num_elements = (2 * num_revolutions * steps_per_rev) as usize;//times 2 because it stores R and Z: (R0,Z0,R1,Z1,...RN-1,ZN-1) of a field line. To create a poincare plot, use stride=steps_per_rev to cut out just the points of one poloidal plane.
-    let mut poincare_points = vec![0.0; num_elements]; //todo: use multiple tracers (10 or so), not just one!
-
-    store_point(&position, &mut poincare_points, 0);
+    //let num_elements = array_size * (num_revolutions * steps_per_rev) as usize;
+    let mut poincare_points = Vec::new();//It stores R, phi and Z: (R0,phi0,Z0,R1,phi1,Z1,...RN-1,phiN-1,ZN-1) of every field line. To create a poincare plot, use stride=steps_per_rev to cut out just the points of one poloidal plane.
 
     println!("Starting the simulation");
-    for step in 1..num_steps {
-        //advance by one time step
-        update_position(&mut position, &input, step_size);
+    for tracer in 0..num_tracers {
+        let index = (tracer * 3) as usize;
+        store_point(&position[index..(index + 3)], &mut poincare_points);
+        for _step in 1..num_steps {
+            //advance by one time step
+            update_position(&mut position[index..(index + 3)], &input, step_size);
 
-        //save data
-        store_point(&position, &mut poincare_points, step);
+            //save data
+            store_point(&position[index..(index + 3)], &mut poincare_points);
+        }
     }
 
     println!("Completed!");
-    println!("Final position: R={}, ϕ={}, Z={}", position[0], position[1], position[2]);
+    println!("Final position (first tracer): R={}, ϕ={}, Z={}", position[0], position[1], position[2]);
 
+    //todo: write to hdf5 instead, much faster (for reading as well)!
     let mut file_handler = File::create("output.csv").expect("Unable to create file");
     for elem in poincare_points.iter() {
         write!(file_handler, "{}\n", elem).expect("Error writing line to output file");
@@ -54,13 +68,13 @@ fn main() {
 }
 
 struct MagInputs {
-    minor_rad0: f64,    //minor radius
-    major_rad0: f64,    //major radius
+    minor_rad0: f64, //minor radius
+    major_rad0: f64, //major radius
     z_pos_axis: f64, //z position of magnetic axis
-    mag_field0: f64,    //on axis field
+    mag_field0: f64, //on axis field
 }
 
-fn update_position(position: &mut [f64; 3], input: &MagInputs, angle_step: f64) {
+fn update_position(position: &mut [f64], input: &MagInputs, angle_step: f64) {
     let mut temporary_position = [0.0; 3];
     let mut k1 = [0.0; 3];
     let mut k2 = [0.0; 3];
@@ -90,7 +104,7 @@ fn update_position(position: &mut [f64; 3], input: &MagInputs, angle_step: f64) 
 }
 
 ///Simple torus for now, returns (B_R,B_phi,B_Z)
-fn get_magnetic_field(position: &[f64; 3], input: &MagInputs) -> [f64; 3] {
+fn get_magnetic_field(position: &[f64], input: &MagInputs) -> [f64; 3] {
     let mut mag_field = [0.0; 3];
 
     let major_radius = position[0];
@@ -110,7 +124,7 @@ fn get_magnetic_field(position: &[f64; 3], input: &MagInputs) -> [f64; 3] {
     mag_field
 }
 
-fn get_derivative(position: &[f64; 3], input: &MagInputs) -> [f64; 3] {
+fn get_derivative(position: &[f64], input: &MagInputs) -> [f64; 3] {
     let mag_field = get_magnetic_field(position, input);
     let mut derivative = [0.0; 3];
     derivative[0] = position[0] * mag_field[0] / mag_field[1]; // dR/dphi = R*B_R/B_phi
@@ -119,8 +133,8 @@ fn get_derivative(position: &[f64; 3], input: &MagInputs) -> [f64; 3] {
     derivative
 }
 
-fn store_point(position: &[f64; 3], destination: &mut [f64], step: u32) {
-    let index = (step * 2) as usize;
-    destination[index] = position[0];
-    destination[index + 1] = position[2];
+fn store_point(position: &[f64], destination: &mut Vec<f64>) {
+    destination.push(position[0]);
+    destination.push(position[1]);
+    destination.push(position[2]);
 }
