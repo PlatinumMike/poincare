@@ -19,4 +19,6 @@ Then analyse the output data with python.
 
 # Misc
 
+Disclaimer: my first Rust project.
+
 Mike 2023
